@@ -13,6 +13,10 @@ app.get('/test', (req, res) => {
 });
 
 // ✅ Discord Webhook 转发逻辑
+app.get('/test', (req, res) => {
+  res.send('✅ Webhook server is running!');
+});
+
 app.post('/', async (req, res) => {
   try {
     const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
