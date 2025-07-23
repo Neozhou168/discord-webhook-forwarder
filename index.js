@@ -10,13 +10,24 @@ app.post("/groupup", async (req, res) => {
   const { routeTitle, startTime, organizerName, note, participants = [] } = req.body;
 
   const message = {
-    content: `📣 **New Group Up Activity Started!**
-**Route:** ${routeTitle}
-**Start Time:** ${startTime}
-**Organizer:** ${organizerName}
-**Note:** ${note || "No note provided"}
-**Participants:** ${participants.length > 0 ? participants.join(", ") : "None yet"}`
+    embeds: [
+      {
+        title: "🚴 Group–Up Event Started!",
+        color: 0x00BFFF,
+        fields: [
+          { name: "📍 Route", value: routeTitle, inline: false },
+          { name: "🕐 Start Time", value: startTime, inline: true },
+          { name: "👤 Organizer", value: organizerName, inline: true },
+          { name: "📝 Note", value: note || "No note provided", inline: false },
+          {
+            name: "🧑‍🤝‍🧑 Participants",
+            value: participants.length > 0 ? participants.join(", ") : "None yet"
+          }
+        ]
+      }
+    ]
   };
+  
 
   try {
     await axios.post(DISCORD_WEBHOOK_URL, message);
