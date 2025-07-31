@@ -5,10 +5,13 @@ import {
   InteractionResponseType,
   verifyKeyMiddleware,
 } from 'discord-interactions';
-import fetch from 'node-fetch'; // Use node-fetch for making requests
+import fetch from 'node-fetch';
 
 const app = express();
 const PORT = process.env.PORT || 8080;
+
+// Add basic middleware for JSON parsing
+app.use(express.json());
 
 // The URL for your Base44 bridge function
 const BASE44_BRIDGE_URL = process.env.BASE44_BRIDGE_FUNCTION_URL;
@@ -25,7 +28,7 @@ async function callAiBridge(query) {
     console.log(`Calling bridge at ${BASE44_BRIDGE_URL} with query: "${query}"`);
 
     const response = await fetch(BASE44_BRIDGE_URL, {
-      method: 'POST', // Ensure the method is POST
+      method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${BRIDGE_SECRET}`,
@@ -52,7 +55,13 @@ async function callAiBridge(query) {
 const discordPublicKey = process.env.DISCORD_PUBLIC_KEY;
 if (!discordPublicKey) {
   console.error('DISCORD_PUBLIC_KEY is not set. Verification will fail.');
+  process.exit(1);
 }
+
+// Basic health check endpoint
+app.get('/', (req, res) => {
+  res.send('Panda Hoho Discord Bot is running!');
+});
 
 // The main endpoint for Discord interactions
 app.post('/interactions', verifyKeyMiddleware(discordPublicKey), async function (req, res) {
@@ -80,13 +89,18 @@ app.post('/interactions', verifyKeyMiddleware(discordPublicKey), async function 
       const followupUrl = `https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}`;
 
       // Send the final answer
-      await fetch(followupUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ content: answer }),
-      });
+      try {
+        await fetch(followupUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ content: answer }),
+        });
+      } catch (error) {
+        console.error('Error sending follow-up message:', error);
+      }
+      
       return; // End the function
     }
   }
