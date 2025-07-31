@@ -10,9 +10,6 @@ import fetch from 'node-fetch';
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-// The verifyKeyMiddleware requires the raw request body. 
-// Do NOT use express.json() before this middleware.
-
 // The URL for your Base44 bridge function
 const BASE44_BRIDGE_URL = process.env.BASE44_BRIDGE_FUNCTION_URL;
 // The secret to authenticate with your bridge function
@@ -57,6 +54,8 @@ if (!discordPublicKey) {
   console.error('DISCORD_PUBLIC_KEY is not set. Verification will fail.');
   process.exit(1);
 }
+// **THE FIX**: Trim whitespace from the key to prevent size errors.
+const trimmedPublicKey = discordPublicKey.trim();
 
 // Basic health check endpoint
 app.get('/', (req, res) => {
@@ -64,8 +63,8 @@ app.get('/', (req, res) => {
 });
 
 // The main endpoint for Discord interactions
-// This middleware verifies the request and parses the body.
-app.post('/interactions', verifyKeyMiddleware(discordPublicKey), async function (req, res) {
+// Pass the trimmed key to the middleware.
+app.post('/interactions', verifyKeyMiddleware(trimmedPublicKey), async function (req, res) {
   const interaction = req.body;
 
   // Handle PING interactions (required by Discord)
