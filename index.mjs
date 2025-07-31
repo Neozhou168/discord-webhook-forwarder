@@ -1,6 +1,6 @@
 // index.mjs
+
 import express from 'express';
-import { json } from 'body-parser';
 import nacl from 'tweetnacl';
 import dotenv from 'dotenv';
 
@@ -8,14 +8,13 @@ dotenv.config();
 
 const app = express();
 
-// Step 1: capture rawBody for signature verification
-app.use(json({
+// Capture rawBody for signature validation
+app.use(express.json({
   verify: (req, res, buf) => {
     req.rawBody = buf;
   },
 }));
 
-// Step 2: main /interactions handler
 app.post('/interactions', (req, res) => {
   const signature = req.get('X-Signature-Ed25519');
   const timestamp = req.get('X-Signature-Timestamp');
@@ -35,15 +34,13 @@ app.post('/interactions', (req, res) => {
   const { type } = req.body;
 
   if (type === 1) {
-    // Ping
+    // Discord Ping
     return res.send({ type: 1 });
   }
 
-  // 可选：后续添加更多交互类型
-  return res.status(400).send('Unhandled interaction type');
+  return res.sendStatus(400);
 });
 
-// Step 3: start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Listening on port ${PORT}`);
