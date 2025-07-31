@@ -29,6 +29,7 @@ const client = new Client({
 client.once('ready', () => {
   console.log(`✅ Discord bot "${client.user.tag}" is online.`);
 });
+client.login(process.env.DISCORD_BOT_TOKEN);
 
 // 监听 Slash command
 client.on('interactionCreate', async (interaction) => {
