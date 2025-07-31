@@ -8,64 +8,63 @@ import axios from 'axios';
 dotenv.config();
 
 const app = express();
-
-// Capture rawBody for signature validation
-app.use(express.json({
-  verify: (req, res, buf) => {
-    req.rawBody = buf;
-  },
-}));
+const PORT = process.env.PORT || 3000;
 
 /**
- * Discord signature verification middleware
+ * Middleware to verify Discord's signature.
+ * This is the corrected implementation.
  */
-const verifyDiscordSignature = (req, res, next) => {
-  const signature = req.get('X-Signature-Ed25519');
-  const timestamp = req.get('X-Signature-Timestamp');
-  const rawBody = req.rawBody;
+const verifyDiscordSignature = (req, res, buf) => {
+  const signature = req.get('x-signature-ed25519');
+  const timestamp = req.get('x-signature-timestamp');
+  const publicKey = process.env.DISCORD_PUBLIC_KEY;
+
+  if (!signature || !timestamp || !publicKey) {
+    throw new Error('Missing Discord signature headers or public key');
+  }
 
   const isVerified = nacl.sign.detached.verify(
-    Buffer.from(timestamp + rawBody.toString()),
-    Buffer.from(process.env.DISCORD_PUBLIC_KEY, 'hex')
+    Buffer.concat([Buffer.from(timestamp), buf]), // The message is timestamp + raw body
+    Buffer.from(signature, 'hex'),                 // The signature from the header
+    Buffer.from(publicKey, 'hex')                  // Your public key from env
   );
 
   if (!isVerified) {
-    console.log('Signature verification failed');
-    return res.status(401).send('invalid request signature');
+    res.status(401).send('Invalid request signature'); // Send response and stop
+    throw new Error('Invalid request signature'); // Also throw to halt execution
   }
-
-  next();
 };
 
-/**
- * Handle Discord interactions (slash commands, buttons, etc.)
- */
-app.post('/interactions', verifyDiscordSignature, async (req, res) => {
-  const { type, data, token, application_id } = req.body;
 
-  // Handle Discord ping
-  if (type === 1) {
-    return res.send({ type: 1 });
+/**
+ * Route for handling all Discord interactions
+ */
+app.post('/interactions', express.json({ verify: verifyDiscordSignature }), async (req, res) => {
+  const interaction = req.body;
+
+  // Handle Discord's verification PING
+  if (interaction.type === 1) { // PING
+    console.log('Responding to Discord PING');
+    return res.send({ type: 1 }); // PONG
   }
 
-  // Handle application commands
-  if (type === 2) {
-    const { name, options } = data;
+  // Handle slash commands
+  if (interaction.type === 2) { // APPLICATION_COMMAND
+    const { name, options } = interaction.data;
 
     if (name === 'ask') {
-      // Acknowledge the command immediately
+      const question = options[0].value;
+      console.log(`Received /ask command: "${question}"`);
+
+      // Defer the response immediately to avoid the 3-second timeout
       res.send({ type: 5 }); // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
 
-      const question = options[0].value;
-      console.log(`Received /ask command with question: "${question}"`);
-
-      // Call Base44 AI function
       try {
         const bridgeUrl = process.env.BASE44_BRIDGE_FUNCTION_URL;
         const bridgeSecret = process.env.RAILWAY_BRIDGE_SECRET;
 
         if (!bridgeUrl || !bridgeSecret) {
-          throw new Error('Bridge URL or Secret not configured');
+          throw new Error('Bridge URL or Secret not configured on Railway');
         }
 
         console.log('Calling Base44 AI bridge function...');
@@ -76,126 +75,52 @@ app.post('/interactions', verifyDiscordSignature, async (req, res) => {
             headers: {
               'Authorization': `Bearer ${bridgeSecret}`,
               'Content-Type': 'application/json'
-            }
+            },
+            timeout: 15000 // Increase timeout to 15 seconds for AI
           }
         );
 
-        const answer = aiResponse.data.answer || "I couldn't find an answer to that.";
-
-        // Send follow-up response
+        const answer = aiResponse.data.answer || "I'm sorry, I couldn't find an answer to that.";
+        
+        // Send the follow-up response with the AI's answer
         await axios.patch(
-          `https://discord.com/api/v10/webhooks/${application_id}/${token}/messages/@original`,
-          {
-            content: `> **You asked:** ${question}\n\n${answer}`
-          },
-          {
-            headers: {
-              'Authorization': `Bot ${process.env.DISCORD_BOT_TOKEN}`,
-              'Content-Type': 'application/json'
-            }
-          }
+          `https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`,
+          { content: answer }
         );
 
         console.log('Successfully sent AI response to Discord');
 
       } catch (error) {
-        console.error('Error processing /ask command:', error.message);
+        console.error('Error processing /ask command:', error.response ? error.response.data : error.message);
         
-        // Send error response
         try {
           await axios.patch(
-            `https://discord.com/api/v10/webhooks/${application_id}/${token}/messages/@original`,
-            {
-              content: `> **You asked:** ${question}\n\nSorry, I ran into an error trying to answer that. Please try again later.`
-            },
-            {
-              headers: {
-                'Authorization': `Bot ${process.env.DISCORD_BOT_TOKEN}`,
-                'Content-Type': 'application/json'
-              }
-            }
+            `https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`,
+            { content: `Sorry, a technical problem occurred while I was thinking. The team has been notified!` }
           );
         } catch (followUpError) {
-          console.error('Failed to send error response:', followUpError.message);
+          console.error('Failed to send error follow-up:', followUpError.message);
         }
       }
-
-      return; // Response already sent
+      return;
     }
   }
 
-  // Default response for unhandled interactions
-  return res.sendStatus(400);
+  console.warn('Unhandled interaction type:', interaction.type);
+  return res.status(400).send({ error: 'unhandled interaction type' });
 });
 
-/**
- * Handle Group-Up announcements from Base44
- */
-app.post('/groupup-announcement', async (req, res) => {
-  const { title, url, creator, time, location } = req.body;
-  
-  console.log('Received group-up announcement:', title);
-
-  const webhookUrl = process.env.GROUPUP_WEBHOOK_URL;
-  if (!webhookUrl) {
-    console.error('GROUPUP_WEBHOOK_URL is not set');
-    return res.status(500).send('Webhook URL not configured');
-  }
-
-  // Create Discord embed for the announcement
-  const embed = {
-    title: `🎉 New Group-Up: ${title}`,
-    url: url,
-    color: 0x5865F2, // Discord blurple
-    fields: [
-      { name: 'Organizer', value: creator, inline: true },
-      { name: 'Time', value: time, inline: true },
-      { name: 'Location', value: location, inline: false }
-    ],
-    footer: {
-      text: 'Want to join? Click the title to see details!'
-    },
-    timestamp: new Date().toISOString()
-  };
-
-  try {
-    await axios.post(webhookUrl, {
-      content: 'A new adventure is brewing! @here',
-      embeds: [embed]
-    });
-
-    console.log('Successfully sent group-up announcement to Discord');
-    return res.status(200).send('Announcement sent successfully');
-
-  } catch (error) {
-    console.error('Error sending group-up announcement:', error.message);
-    return res.status(500).send('Failed to send announcement');
-  }
-});
-
-/**
- * Health check endpoint
- */
+// Health check endpoint
 app.get('/health', (req, res) => {
-  res.status(200).send({
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-    endpoints: {
-      interactions: '/interactions',
-      groupup: '/groupup-announcement'
-    }
-  });
+  res.status(200).send({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
-/**
- * Root endpoint
- */
+// Root endpoint
 app.get('/', (req, res) => {
   res.send('Panda Hoho Discord Bot is running! 🐼');
 });
 
-const PORT = process.env.PORT || 3000;
+
 app.listen(PORT, () => {
   console.log(`Panda Hoho Discord Bot listening on port ${PORT}`);
-  console.log(`Health check available at: http://localhost:${PORT}/health`);
 });
