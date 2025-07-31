@@ -8,13 +8,14 @@ dotenv.config();
 
 const app = express();
 
-// Capture rawBody for signature validation
+// Step 1: capture rawBody for signature verification
 app.use(json({
   verify: (req, res, buf) => {
     req.rawBody = buf;
-  }
+  },
 }));
 
+// Step 2: main /interactions handler
 app.post('/interactions', (req, res) => {
   const signature = req.get('X-Signature-Ed25519');
   const timestamp = req.get('X-Signature-Timestamp');
@@ -38,12 +39,15 @@ app.post('/interactions', (req, res) => {
     return res.send({ type: 1 });
   }
 
-  return res.sendStatus(400);
+  // 可选：后续添加更多交互类型
+  return res.status(400).send('Unhandled interaction type');
 });
 
+// Step 3: start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Listening on port ${PORT}`);
 });
+
 
 
