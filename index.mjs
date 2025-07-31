@@ -1,119 +1,101 @@
-// index.mjs
-
+import 'dotenv/config';
 import express from 'express';
-import nacl from 'tweetnacl';
-import dotenv from 'dotenv';
-import axios from 'axios';
-
-dotenv.config();
+import {
+  InteractionType,
+  InteractionResponseType,
+  verifyKeyMiddleware,
+} from 'discord-interactions';
+import fetch from 'node-fetch'; // Use node-fetch for making requests
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 
-// This middleware captures the raw body correctly for verification
-app.use(express.json({
-  verify: (req, res, buf) => {
-    req.rawBody = buf;
+// The URL for your Base44 bridge function
+const BASE44_BRIDGE_URL = process.env.BASE44_BRIDGE_FUNCTION_URL;
+// The secret to authenticate with your bridge function
+const BRIDGE_SECRET = process.env.RAILWAY_BRIDGE_SECRET;
+
+async function callAiBridge(query) {
+  if (!BASE44_BRIDGE_URL || !BRIDGE_SECRET) {
+    console.error('Missing BASE44_BRIDGE_FUNCTION_URL or RAILWAY_BRIDGE_SECRET');
+    return 'Configuration error: The bot is not connected to the AI brain.';
   }
-}));
 
+  try {
+    console.log(`Calling bridge at ${BASE44_BRIDGE_URL} with query: "${query}"`);
 
-/**
- * Route for handling all Discord interactions
- */
-app.post('/interactions', async (req, res) => {
-  const signature = req.get('x-signature-ed25519');
-  const timestamp = req.get('x-signature-timestamp');
-  const rawBody = req.rawBody; // Get the raw body from the middleware
+    const response = await fetch(BASE44_BRIDGE_URL, {
+      method: 'POST', // Ensure the method is POST
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${BRIDGE_SECRET}`,
+      },
+      body: JSON.stringify({ query: query }),
+    });
 
-  const isVerified = nacl.sign.detached.verify(
-    Buffer.from(timestamp + rawBody.toString('utf-8')), // Correctly combine timestamp and body
-    Buffer.from(signature, 'hex'),
-    Buffer.from(process.env.DISCORD_PUBLIC_KEY, 'hex')
-  );
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`Bridge function returned an error: ${response.status}`, errorText);
+      return `Sorry, I had a problem communicating with my brain. (Error: ${response.status})`;
+    }
 
-  if (!isVerified) {
-    console.log('Signature verification failed');
-    return res.status(401).send('invalid request signature');
+    const data = await response.json();
+    return data.answer || 'I received a response, but it was empty.';
+
+  } catch (error) {
+    console.error('Error calling AI bridge:', error);
+    return 'Sorry, I had a network problem trying to reach my brain.';
   }
-  
+}
+
+// Your Discord bot's public key for request verification
+const discordPublicKey = process.env.DISCORD_PUBLIC_KEY;
+if (!discordPublicKey) {
+  console.error('DISCORD_PUBLIC_KEY is not set. Verification will fail.');
+}
+
+// The main endpoint for Discord interactions
+app.post('/interactions', verifyKeyMiddleware(discordPublicKey), async function (req, res) {
   const interaction = req.body;
 
-  // Handle Discord's verification PING
-  if (interaction.type === 1) { // PING
-    console.log('Responding to Discord PING');
-    return res.json({ type: 1 }); // PONG
+  // Handle PING interactions (required by Discord)
+  if (interaction.type === InteractionType.PING) {
+    return res.send({ type: InteractionResponseType.PONG });
   }
 
-  // Handle slash commands
-  if (interaction.type === 2 && interaction.data.name === 'ask') {
-    const question = interaction.data.options[0].value;
-    console.log(`Received /ask command: "${question}"`);
-
-    // Defer the response immediately to avoid the 3-second timeout
-    res.json({ type: 5 }); // DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE
-
-    try {
-      const bridgeUrl = process.env.BASE44_BRIDGE_FUNCTION_URL;
-      const bridgeSecret = process.env.RAILWAY_BRIDGE_SECRET;
-
-      if (!bridgeUrl || !bridgeSecret) {
-        throw new Error('Bridge URL or Secret not configured on Railway');
-      }
-
-      console.log('Calling Base44 AI bridge function...');
-      const aiResponse = await axios.post(
-        bridgeUrl,
-        { query: question },
-        {
-          headers: {
-            'Authorization': `Bearer ${bridgeSecret}`,
-            'Content-Type': 'application/json'
-          },
-          timeout: 15000 // 15 second timeout for the AI function
-        }
-      );
-
-      const answer = aiResponse.data.answer || "I'm sorry, I couldn't find an answer to that.";
+  // Handle slash command interactions
+  if (interaction.type === InteractionType.APPLICATION_COMMAND) {
+    if (interaction.data.name === 'ask') {
       
-      // Send the follow-up response with the AI's answer
-      await axios.patch(
-        `https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`,
-        { content: answer }
-      );
+      // Immediately tell Discord "I'm thinking..."
+      res.send({
+        type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
+      });
 
-      console.log('Successfully sent AI response to Discord');
-
-    } catch (error) {
-      console.error('Error processing /ask command:', error.response ? error.response.data : error.message);
+      // Now, do the slow work in the background
+      const question = interaction.data.options[0].value;
+      const answer = await callAiBridge(question);
       
-      try {
-        await axios.patch(
-          `https://discord.com/api/v10/webhooks/${interaction.application_id}/${interaction.token}/messages/@original`,
-          { content: `Sorry, a technical problem occurred while I was thinking. The team has been notified!` }
-        );
-      } catch (followUpError) {
-        console.error('Failed to send error follow-up:', followUpError.message);
-      }
+      // The URL to send a follow-up message to the original interaction
+      const followupUrl = `https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}`;
+
+      // Send the final answer
+      await fetch(followupUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ content: answer }),
+      });
+      return; // End the function
     }
-    return;
   }
-
-  console.warn('Unhandled interaction type:', interaction.type);
-  return res.status(400).send({ error: 'unhandled interaction type' });
+  
+  console.log('Unhandled interaction type:', interaction.type);
+  return res.status(400).send('Unhandled interaction type.');
 });
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.status(200).send({ status: 'healthy', timestamp: new Date().toISOString() });
-});
-
-// Root endpoint
-app.get('/', (req, res) => {
-  res.send('Panda Hoho Discord Bot is running! 🐼');
-});
-
-
+// Start the server
 app.listen(PORT, () => {
   console.log(`Panda Hoho Discord Bot listening on port ${PORT}`);
 });
