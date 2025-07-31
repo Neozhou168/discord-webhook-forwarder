@@ -1,7 +1,8 @@
-// 强制使用 IPv4，避免 UND_ERR_CONNECT_TIMEOUT 错误
+// 解决代理使用 IPv4，避免 UND_ERR_CONNECT_TIMEOUT 错误
 import dns from 'dns';
 dns.setDefaultResultOrder('ipv4first');
 
+// 导入依赖
 import 'dotenv/config';
 import { Client, GatewayIntentBits, ActivityType } from 'discord.js';
 import express from 'express';
@@ -14,7 +15,7 @@ const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
+    GatewayIntentBits.MessageContent,
   ],
   presence: {
     status: 'online',
@@ -27,7 +28,7 @@ const client = new Client({
   },
 });
 
-// AI 问答处理（来自 /ask）
+// 处理 /ask 指令
 client.on('interactionCreate', async (interaction) => {
   if (!interaction.isCommand()) return;
 
@@ -64,18 +65,22 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
-// Express 服务（UptimeRobot 保活 + Webhook）
+// 启动 Express 服务
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.use(bodyParser.json());
 
-app.get('/', (_, res) => res.send('Discord bot is alive!'));
+app.get('/', (_req, res) => res.send('Discord bot is alive!'));
 
-// Webhook：group-up 创建时推送到 Discord 渠道
+// ✅ 用于 Discord 验证 interactions endpoint（必须返回 200）
+app.post('/interactions', (_req, res) => {
+  res.status(200).send('OK');
+});
+
+// webhook：接收 groupupCreated 并发送到 Discord
 app.post('/groupupCreated', async (req, res) => {
   try {
     const webhookUrl = process.env.GROUPUP_WEBHOOK_URL;
-
     if (!webhookUrl) {
       console.error('❌ GROUPUP_WEBHOOK_URL not found');
       return res.status(500).send('Webhook URL not configured');
@@ -86,17 +91,17 @@ app.post('/groupupCreated', async (req, res) => {
     const content = {
       embeds: [
         {
-          title: `🎉 New Group-Up: ${groupup.title || 'Untitled'}`,
+          title: `📌 New Group-Up: ${groupup.title || 'Untitled'}`,
           description: groupup.description || 'No description provided.',
           fields: [
             { name: '📍 Location', value: groupup.location || 'Unknown', inline: true },
-            { name: '🕒 Time', value: groupup.time || 'Not specified', inline: true },
-            { name: '🧑‍🤝‍🧑 Host', value: groupup.creator || 'Anonymous', inline: false }
+            { name: '⏰ Time', value: groupup.time || 'Not specified', inline: true },
+            { name: '👤 Host', value: groupup.creator || 'Anonymous', inline: false },
           ],
-          footer: { text: 'Shared via PandaHoho 🐼' },
-          timestamp: new Date().toISOString()
-        }
-      ]
+          footer: { text: 'Shared via Pandahoho 🤖' },
+          timestamp: new Date().toISOString(),
+        },
+      ],
     };
 
     const webhookRes = await axios.post(webhookUrl, content);
@@ -108,12 +113,14 @@ app.post('/groupupCreated', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => console.log(`✅ Express server is running on port ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`✅ Express server is running on port ${PORT}`);
+});
 
 // 启动 Bot
 client.once('ready', () => {
   console.log(`✅ Discord bot "${client.user.tag}" is online.`);
 });
-
 client.login(process.env.DISCORD_BOT_TOKEN);
+
 
