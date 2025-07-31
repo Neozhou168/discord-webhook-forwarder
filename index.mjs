@@ -6,11 +6,10 @@ import {
   InteractionResponseType,
   verifyKeyMiddleware,
 } from 'discord-interactions';
-import { createClient } from '@base44/sdk';
 
-// --- Base44 SDK Setup ---
-// Initialize the SDK with the API key from your Railway variables
-const base44 = createClient({
+// --- Base44 SDK Setup with correct import syntax ---
+import base44SDK from '@base44/sdk';
+const base44 = base44SDK({
   appId: process.env.BASE44_APP_ID,
   apiKey: process.env.BASE44_API_KEY,
 });
