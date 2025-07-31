@@ -1,19 +1,21 @@
 {
-  "name": "panda-hoho-discord",
+  "name": "panda-hoho-discord-bot",
   "version": "1.0.0",
-  "type": "module",
+  "description": "Discord bot bridge for the Panda Hoho Base44 app",
   "main": "index.mjs",
+  "type": "module",
   "scripts": {
     "start": "node index.mjs"
   },
   "dependencies": {
     "axios": "^1.11.0",
-    "body-parser": "^2.2.0",
-    "discord-interactions": "^4.3.0",
-    "discord.js": "^14.21.0",
+    "body-parser": "^1.20.2",
     "dotenv": "^16.6.1",
     "express": "^4.21.2",
-    "https": "^1.0.0",
     "tweetnacl": "^1.0.3"
+  },
+  "engines": {
+    "node": "18"
   }
 }
+
