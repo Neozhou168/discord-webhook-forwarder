@@ -1,11 +1,14 @@
+// index.mjs
 import express from 'express';
-import nacl from 'tweetnacl';
 import { json } from 'body-parser';
+import nacl from 'tweetnacl';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
 const app = express();
+
+// Capture rawBody for signature validation
 app.use(json({
   verify: (req, res, buf) => {
     req.rawBody = buf;
@@ -13,8 +16,8 @@ app.use(json({
 }));
 
 app.post('/interactions', (req, res) => {
-  const signature = req.header('X-Signature-Ed25519');
-  const timestamp = req.header('X-Signature-Timestamp');
+  const signature = req.get('X-Signature-Ed25519');
+  const timestamp = req.get('X-Signature-Timestamp');
   const rawBody = req.rawBody;
 
   const isVerified = nacl.sign.detached.verify(
@@ -24,12 +27,15 @@ app.post('/interactions', (req, res) => {
   );
 
   if (!isVerified) {
-    return res.status(401).send('Bad request signature');
+    console.log('Signature verification failed');
+    return res.status(401).send('invalid request signature');
   }
 
-  const interactionType = req.body.type;
-  if (interactionType === 1) {
-    return res.json({ type: 1 }); // PING
+  const { type } = req.body;
+
+  if (type === 1) {
+    // Ping
+    return res.send({ type: 1 });
   }
 
   return res.sendStatus(400);
@@ -39,4 +45,5 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Listening on port ${PORT}`);
 });
+
 
