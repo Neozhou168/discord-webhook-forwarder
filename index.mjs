@@ -10,8 +10,8 @@ import fetch from 'node-fetch';
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-// Add basic middleware for JSON parsing
-app.use(express.json());
+// The verifyKeyMiddleware requires the raw request body. 
+// Do NOT use express.json() before this middleware.
 
 // The URL for your Base44 bridge function
 const BASE44_BRIDGE_URL = process.env.BASE44_BRIDGE_FUNCTION_URL;
@@ -64,6 +64,7 @@ app.get('/', (req, res) => {
 });
 
 // The main endpoint for Discord interactions
+// This middleware verifies the request and parses the body.
 app.post('/interactions', verifyKeyMiddleware(discordPublicKey), async function (req, res) {
   const interaction = req.body;
 
@@ -76,7 +77,7 @@ app.post('/interactions', verifyKeyMiddleware(discordPublicKey), async function 
   if (interaction.type === InteractionType.APPLICATION_COMMAND) {
     if (interaction.data.name === 'ask') {
       
-      // Immediately tell Discord "I'm thinking..."
+      // Immediately tell Discord "I'm thinking..." to prevent timeout
       res.send({
         type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
       });
