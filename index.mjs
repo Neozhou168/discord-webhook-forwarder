@@ -1,124 +1,98 @@
-// index.mjs
-
-import dns from 'dns';
-dns.setDefaultResultOrder('ipv4first');
-
 import express from 'express';
-import axios from 'axios';
-import https from 'https';
-import { config } from 'dotenv';
-config();
+import { InteractionType, verifyKeyMiddleware } from 'discord-interactions';
+import dotenv from 'dotenv';
+import fetch from 'node-fetch';
+import bodyParser from 'body-parser';
 
-import { Client, GatewayIntentBits, ActivityType, EmbedBuilder } from 'discord.js';
-import { verifyKeyMiddleware, InteractionType } from 'discord-interactions';
-
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-  ],
-  presence: {
-    status: 'online',
-    activities: [
-      {
-        name: 'for group-up activities',
-        type: ActivityType.Watching,
-      },
-    ],
-  },
-});
-
-client.once('ready', () => {
-  console.log(`✅ Discord bot "${client.user.tag}" is online.`);
-});
-
-client.login(process.env.DISCORD_BOT_TOKEN);
+dotenv.config();
 
 const app = express();
-app.use(express.json({
-  verify: (req, res, buf) => {
-    req.rawBody = buf;
-  }
-}));
+const PORT = process.env.PORT || 3000;
 
-// 1️⃣ Discord interactions endpoint: 验证及处理指令
-app.post('/interactions', verifyKeyMiddleware(process.env.PUBLIC_KEY), async (req, res) => {
+app.use(bodyParser.json({ verify: (req, res, buf) => { req.rawBody = buf.toString(); } }));
+
+// --- Discord Interactions Handler ---
+app.post('/interactions', async (req, res) => {
+  const signature = req.header('X-Signature-Ed25519');
+  const timestamp = req.header('X-Signature-Timestamp');
+  const { verifyKey } = await import('discord-interactions');
+
+  const isValid = verifyKey(req.rawBody, signature, timestamp, process.env.DISCORD_PUBLIC_KEY);
+
+  if (!isValid) {
+    return res.status(401).send('Bad request signature');
+  }
+
   const interaction = req.body;
 
+  // Discord handshake: PING -> return PONG
   if (interaction.type === InteractionType.PING) {
-    return res.send({ type: 1 });
+    return res.json({ type: InteractionType.PONG });
   }
 
-  if (interaction.type === InteractionType.APPLICATION_COMMAND) {
-    const query = interaction.data.options?.find(o => o.name === 'query')?.value;
-
-    if (!query) {
-      return res.send({
-        type: 4,
-        data: {
-          content: '⚠️ Please provide a query.',
-        },
-      });
-    }
+  // Handle /ask command
+  if (interaction.type === InteractionType.APPLICATION_COMMAND && interaction.data.name === 'ask') {
+    const userPrompt = interaction.data.options?.[0]?.value || 'Ask me anything';
+    const question = encodeURIComponent(userPrompt);
 
     try {
-      const response = await axios.post(process.env.AI_BRIDGE_URL, { prompt: query }, {
-        headers: { 'Content-Type': 'application/json' },
-        timeout: 10000,
-        httpsAgent: new https.Agent({ keepAlive: true }),
+      const bridgeRes = await fetch(`${process.env.BASE44_BRIDGE_FUNCTION_URL}?q=${question}`, {
+        headers: {
+          'X-Bridge-Token': process.env.RAILWAY_BRIDGE_SECRET
+        }
       });
 
-      return res.send({
+      const result = await bridgeRes.text();
+
+      return res.json({
         type: 4,
         data: {
-          content: response.data.reply || '🤖 Got it, but no reply was returned.',
-        },
+          content: `🧠 ${result}`
+        }
       });
-    } catch (err) {
-      console.error('AI Bridge Error:', err.message);
-      return res.send({
+    } catch (error) {
+      console.error('Bridge call failed:', error);
+      return res.json({
         type: 4,
         data: {
-          content: '⚠️ Failed to connect to AI bridge.',
-        },
+          content: '⚠️ Something went wrong while querying the AI.'
+        }
       });
     }
   }
+
+  return res.status(400).send('Unhandled interaction type');
 });
 
-// 2️⃣ GroupUp webhook handler
+// --- GroupUp Webhook Handler ---
 app.post('/groupupCreated', async (req, res) => {
-  const data = req.body;
+  const webhookUrl = process.env.GROUPUP_WEBHOOK_URL;
+  const groupup = req.body;
 
-  if (!data || !data.title || !data.description) {
-    return res.status(400).send('Missing fields in webhook payload.');
-  }
+  const payload = {
+    content: `📢 **New Group Up Created!**\n\n📍 Location: ${groupup.location}\n🕒 Time: ${groupup.time}\n✏️ Host: ${groupup.host}\n\n[Join Now](${groupup.link})`,
+  };
 
   try {
-    const embed = new EmbedBuilder()
-      .setTitle(`📌 ${data.title}`)
-      .setDescription(data.description)
-      .setColor(0x00AE86)
-      .setTimestamp(new Date());
-
-    await axios.post(process.env.GROUPUP_WEBHOOK_URL, {
-      embeds: [embed],
+    await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
     });
 
-    console.log('✅ GroupUp pushed to Discord.');
-    res.sendStatus(200);
+    res.status(200).send('OK');
   } catch (err) {
-    console.error('❌ Failed to push GroupUp to Discord:', err.message);
-    res.status(500).send('Failed to push GroupUp.');
+    console.error('Error sending to Discord webhook:', err);
+    res.status(500).send('Failed to send groupup message');
   }
 });
 
-// 3️⃣ Home page endpoint
-const PORT = process.env.PORT || 3000;
-app.get('/', (_, res) => res.send('Hoho bot is alive!'));
-app.listen(PORT, () => {
-  console.log(`🚀 Express server is running on port ${PORT}`);
+// --- Default Route ---
+app.get('/', (req, res) => {
+  res.send('Hoho Bot is running!');
 });
 
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
 
