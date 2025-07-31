@@ -7,56 +7,33 @@ import {
   verifyKeyMiddleware,
 } from 'discord-interactions';
 
-// --- Base44 SDK Setup with correct import syntax ---
-import base44SDK from '@base44/sdk';
-const base44 = base44SDK({
-  appId: process.env.BASE44_APP_ID,
-  apiKey: process.env.BASE44_API_KEY,
-});
-
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-// --- AI Logic (now inside the bot) ---
+// --- AI Logic using your working aiSearchAgent function ---
 async function getAiResponse(query) {
   try {
-    console.log("Fetching routes and venues from Base44...");
-    const routes = await base44.entities.Route.filter({});
-    const venues = await base44.entities.Venue.filter({});
-    console.log(`Found ${routes.length} routes and ${venues.length} venues.`);
-
-    const context = `
-        AVAILABLE ROUTES:
-        ${routes.map(r => `- ${r.title}: Located in ${r.city}. Description: ${r.description}`).join('\n')}
-
-        AVAILABLE VENUES:
-        ${venues.map(v => `- ${v.name} (${v.type}): Located in ${v.city}. Description: ${v.description}`).join('\n')}
-    `;
-
-    const prompt = `
-        You are Panda Hoho, a friendly and helpful travel assistant for China.
-        Answer the user's question based ONLY on the context provided below.
-        If the answer is not in the context, say "I'm sorry, I can't find specific information on that. You can discover more amazing routes and tips on our website, pandahoho.com!"
-        Keep your answers concise and friendly. Always refer users back to pandahoho.com for full guides and details.
-
-        CONTEXT:
-        ${context}
-
-        USER QUESTION:
-        ${query}
-    `;
-
-    console.log("Calling LLM with the prompt...");
-    const llmResponse = await base44.integrations.Core.InvokeLLM({
-        prompt: prompt,
+    console.log(`Calling aiSearchAgent with query: "${query}"`);
+    
+    const response = await fetch('https://pandahoho.base44.app/functions/aiSearchAgent', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ query: query }),
     });
-    console.log("LLM response received.");
 
-    return llmResponse;
+    if (!response.ok) {
+      console.error(`aiSearchAgent returned status ${response.status}`);
+      return 'Sorry, I had trouble accessing my knowledge base. Please try again in a moment.';
+    }
+
+    const data = await response.json();
+    return data.response || data || 'I received a response, but it was empty.';
 
   } catch (error) {
-    console.error('Error in getAiResponse:', error.message);
-    return 'I seem to be having trouble accessing my knowledge base right now. Please try again in a moment.';
+    console.error('Error calling aiSearchAgent:', error);
+    return 'I seem to be having trouble right now. Please try again in a moment.';
   }
 }
 

@@ -8,7 +8,6 @@
     "start": "node index.mjs"
   },
   "dependencies": {
-    "@base44/sdk": "^0.1.0",
     "discord-interactions": "^3.4.0",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
