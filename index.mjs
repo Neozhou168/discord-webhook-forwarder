@@ -15,7 +15,7 @@ async function getAiResponse(query) {
   try {
     console.log(`Calling aiSearchAgent with query: "${query}"`);
     
-    const response = await fetch('https://pandahoho.base44.app/functions/aiSearchAgent', {
+    const response = await fetch('https://pandahoho-ai-search-production.up.railway.app', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
