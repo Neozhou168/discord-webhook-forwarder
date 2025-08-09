@@ -119,7 +119,7 @@ async function getAiResponse(query, retries = 2) {
           discordMessage += `${desc}${payload.description.length > 150 ? '...' : ''}\n`;
         }
         if (payload.url) {
-          discordMessage += `🔗 ${payload.url}\n`;
+          discordMessage += `📍 [查看详情](<${payload.url}>)\n`;
         }
         discordMessage += '\n';
       });
