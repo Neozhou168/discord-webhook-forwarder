@@ -68,6 +68,15 @@ async function getAiResponse(query, retries = 2) {
 
       const data = await response.json();
       console.log('✅ AI Search response received:', JSON.stringify(data, null, 2));
+      console.log('🔍 Raw results count:', data.results?.length || 0);
+      
+      // 🔥 调试：检查原始结果中是否包含推广信息
+      if (data.results) {
+        data.results.forEach((result, index) => {
+          const payload = result.payload || {};
+          console.log(`Result ${index}: title="${payload.title}", description="${payload.description?.substring(0, 50)}..."`);
+        });
+      }
       
       if (data.status === 'error') {
         console.error('❌ AI Search error:', data.message);
@@ -84,8 +93,14 @@ async function getAiResponse(query, retries = 2) {
         const description = payload.description || '';
         
         // 只过滤掉包含推广文案的结果
-        return !description.includes('Your guide to the great outdoors');
+        const isPromo = description.includes('Your guide to the great outdoors');
+        if (isPromo) {
+          console.log('🚫 Filtered out promotion:', payload.title);
+        }
+        return !isPromo;
       });
+      
+      console.log('🔍 Filtered results count:', realResults.length);
       
       if (realResults.length === 0) {
         return `I couldn't find any relevant information for "${query}". Try rephrasing your question or asking about something else.`;
