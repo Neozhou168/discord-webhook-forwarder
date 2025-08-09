@@ -12,6 +12,17 @@ const PORT = process.env.PORT || 8080;
 
 // 添加请求体大小限制和超时处理
 app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+// 添加请求日志中间件
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  console.log('Headers:', req.headers);
+  if (req.body && Object.keys(req.body).length > 0) {
+    console.log('Body:', JSON.stringify(req.body, null, 2));
+  }
+  next();
+});
 
 // --- AI Logic using your working aiSearchAgent function ---
 async function getAiResponse(query) {
@@ -110,8 +121,73 @@ app.get('/health', (req, res) => {
   res.json({ 
     status: 'ok', 
     timestamp: new Date().toISOString(),
-    service: 'Panda Hoho Discord Bot'
+    service: 'Panda Hoho Discord Bot',
+    port: PORT,
+    env: {
+      hasDiscordPublicKey: !!process.env.DISCORD_PUBLIC_KEY,
+      hasDiscordAppId: !!process.env.DISCORD_APPLICATION_ID,
+      nodeEnv: process.env.NODE_ENV || 'development'
+    }
   });
+});
+
+// 添加测试AI搜索的端点
+app.get('/test-search', async (req, res) => {
+  const query = req.query.q || 'test query';
+  
+  try {
+    console.log(`Testing AI search with query: "${query}"`);
+    const result = await getAiResponse(query);
+    
+    res.json({
+      success: true,
+      query: query,
+      result: result,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Test search error:', error);
+    res.status(500).json({
+      success: false,
+      query: query,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// 添加测试Discord webhook的端点
+app.post('/test-webhook', async (req, res) => {
+  const { token, message } = req.body;
+  
+  if (!token || !message) {
+    return res.status(400).json({ error: 'Missing token or message' });
+  }
+  
+  try {
+    const webhookUrl = `https://discord.com/api/v10/webhooks/${process.env.DISCORD_APPLICATION_ID}/${token}`;
+    
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: message }),
+    });
+    
+    const responseText = await response.text();
+    
+    res.json({
+      success: response.ok,
+      status: response.status,
+      response: responseText,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
 });
 
 // --- Discord Bot Logic ---
@@ -138,109 +214,147 @@ app.get('/', (req, res) => {
 app.post('/interactions', verifyKeyMiddleware(discordPublicKey), async function (req, res) {
   const interaction = req.body;
   
-  console.log(`Received interaction type: ${interaction.type}`);
+  console.log(`=== INTERACTION RECEIVED ===`);
+  console.log(`Timestamp: ${new Date().toISOString()}`);
+  console.log(`Interaction type: ${interaction.type}`);
+  console.log(`Interaction data:`, JSON.stringify(interaction, null, 2));
 
-  if (interaction.type === InteractionType.PING) {
-    console.log('Responding to ping');
-    return res.send({ type: InteractionResponseType.PONG });
-  }
-
-  if (interaction.type === InteractionType.APPLICATION_COMMAND && interaction.data.name === 'ask') {
-    console.log(`Processing command: ${interaction.data.name}`);
-    
-    // 立即响应Discord，告诉它我们正在处理（3秒内必须响应）
-    res.send({ 
-      type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
-    });
-
-    const question = interaction.data.options?.[0]?.value;
-    
-    if (!question) {
-      console.error('No question provided in the command');
-      return;
+  try {
+    if (interaction.type === InteractionType.PING) {
+      console.log('Responding to ping with pong');
+      return res.status(200).json({ type: InteractionResponseType.PONG });
     }
-    
-    console.log(`Received question: "${question}"`);
-    
-    // 异步处理，避免阻塞响应
-    setImmediate(async () => {
-      try {
-        console.log('Starting AI search...');
-        const startTime = Date.now();
-        
-        const answer = await getAiResponse(question);
-        const endTime = Date.now();
-        
-        console.log(`AI search completed in ${endTime - startTime}ms, sending to Discord...`);
 
-        const followupUrl = `https://discord.com/api/v10/webhooks/${process.env.DISCORD_APPLICATION_ID}/${interaction.token}`;
-        
-        // Discord消息有2000字符限制，需要截断
-        const maxLength = 2000;
-        const truncatedAnswer = answer.length > maxLength 
-          ? answer.substring(0, maxLength - 3) + '...' 
-          : answer;
-        
-        const followupResponse = await fetch(followupUrl, {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'User-Agent': 'Discord-Bot/1.0'
-          },
-          body: JSON.stringify({ 
-            content: truncatedAnswer,
-            flags: 0 // 确保消息是公开的
-          }),
+    if (interaction.type === InteractionType.APPLICATION_COMMAND) {
+      console.log(`Command name: ${interaction.data?.name}`);
+      
+      if (interaction.data?.name === 'ask') {
+        // 立即响应Discord（必须在3秒内响应）
+        console.log('Sending deferred response to Discord...');
+        res.status(200).json({ 
+          type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
         });
 
-        if (!followupResponse.ok) {
-          const errorText = await followupResponse.text();
-          console.error(`Follow-up failed with status ${followupResponse.status}: ${errorText}`);
+        const question = interaction.data.options?.[0]?.value;
+        
+        if (!question) {
+          console.error('No question provided in the command');
           
-          // 尝试发送简化的错误消息
-          const errorFollowup = await fetch(followupUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              content: `Sorry, I encountered an error (Status: ${followupResponse.status}). Please try again.`
-            }),
-          });
+          // 发送错误消息
+          setTimeout(async () => {
+            try {
+              const followupUrl = `https://discord.com/api/v10/webhooks/${process.env.DISCORD_APPLICATION_ID}/${interaction.token}`;
+              await fetch(followupUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: 'Error: No question provided.' }),
+              });
+            } catch (err) {
+              console.error('Error sending no-question error:', err);
+            }
+          }, 100);
           
-          if (!errorFollowup.ok) {
-            console.error('Failed to send error follow-up message');
-          }
-        } else {
-          console.log('Successfully sent response to Discord.');
+          return;
         }
         
-      } catch (error) {
-        console.error('Error in async processing:', error);
+        console.log(`Processing question: "${question}"`);
         
-        // 发送错误回复
-        try {
-          const followupUrl = `https://discord.com/api/v10/webhooks/${process.env.DISCORD_APPLICATION_ID}/${interaction.token}`;
-          
-          const errorMessage = error.message?.includes('fetch') 
-            ? 'Sorry, I had trouble connecting to my search service. Please try again.'
-            : 'Sorry, I encountered an unexpected error while processing your request.';
+        // 异步处理搜索请求
+        setTimeout(async () => {
+          try {
+            console.log('=== STARTING AI SEARCH ===');
+            const startTime = Date.now();
             
-          await fetch(followupUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content: errorMessage }),
-          });
-        } catch (fallbackError) {
-          console.error('Error sending fallback message:', fallbackError);
-        }
+            const answer = await getAiResponse(question);
+            const endTime = Date.now();
+            
+            console.log(`=== AI SEARCH COMPLETED in ${endTime - startTime}ms ===`);
+            console.log(`Answer length: ${answer.length} characters`);
+
+            const followupUrl = `https://discord.com/api/v10/webhooks/${process.env.DISCORD_APPLICATION_ID}/${interaction.token}`;
+            console.log(`Sending follow-up to: ${followupUrl}`);
+            
+            // Discord消息有2000字符限制
+            const maxLength = 2000;
+            const truncatedAnswer = answer.length > maxLength 
+              ? answer.substring(0, maxLength - 3) + '...' 
+              : answer;
+            
+            console.log(`Truncated answer length: ${truncatedAnswer.length} characters`);
+            
+            const followupResponse = await fetch(followupUrl, {
+              method: 'POST',
+              headers: { 
+                'Content-Type': 'application/json',
+                'User-Agent': 'Discord-Bot/1.0'
+              },
+              body: JSON.stringify({ 
+                content: truncatedAnswer
+              }),
+            });
+
+            console.log(`Follow-up response status: ${followupResponse.status}`);
+
+            if (!followupResponse.ok) {
+              const errorText = await followupResponse.text();
+              console.error(`Follow-up failed: ${errorText}`);
+              
+              // 尝试发送简化的错误消息
+              const errorResponse = await fetch(followupUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                  content: `❌ Error occurred while processing your request (Status: ${followupResponse.status})`
+                }),
+              });
+              
+              console.log(`Error follow-up status: ${errorResponse.status}`);
+            } else {
+              console.log('✅ Successfully sent response to Discord');
+            }
+            
+          } catch (error) {
+            console.error('=== ERROR IN ASYNC PROCESSING ===');
+            console.error('Error details:', error);
+            
+            // 发送错误回复
+            try {
+              const followupUrl = `https://discord.com/api/v10/webhooks/${process.env.DISCORD_APPLICATION_ID}/${interaction.token}`;
+              
+              const errorMessage = error.name === 'AbortError'
+                ? '⏱️ Request timed out. Please try again.'
+                : '❌ An unexpected error occurred. Please try again.';
+                
+              const errorResponse = await fetch(followupUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: errorMessage }),
+              });
+              
+              console.log(`Error message sent, status: ${errorResponse.status}`);
+            } catch (fallbackError) {
+              console.error('Failed to send error message:', fallbackError);
+            }
+          }
+        }, 100); // 100ms延迟确保响应已发送
+        
+        return; // 确保函数结束
       }
-    });
+    }
     
-    return; // 确保函数在这里结束
+    // 处理未知的交互类型或命令
+    console.log(`Unknown interaction: type=${interaction.type}, command=${interaction.data?.name}`);
+    return res.status(400).json({ error: 'Unknown interaction type or command' });
+    
+  } catch (error) {
+    console.error('=== ERROR IN INTERACTION HANDLER ===');
+    console.error('Error details:', error);
+    
+    // 如果还没有发送响应，发送错误响应
+    if (!res.headersSent) {
+      return res.status(500).json({ error: 'Internal server error' });
+    }
   }
-  
-  // 处理未知的交互类型
-  console.log(`Unknown interaction type: ${interaction.type}`);
-  return res.status(400).send({ error: 'Unknown interaction type' });
 });
 
 // 错误处理中间件
