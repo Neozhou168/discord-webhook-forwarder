@@ -45,25 +45,25 @@ async function getAiResponse(query) {
     }
     
     // 格式化搜索结果为Discord消息
-    let response = `🔍 **Search Results for: "${query}"**\n\n`;
+    let discordMessage = `🔍 **Search Results for: "${query}"**\n\n`;
     
     data.results.slice(0, 3).forEach((result, index) => {
       const payload = result.payload || {};
       const score = (result.score * 100).toFixed(1);
       
-      response += `**${index + 1}. ${payload.title || 'No title'}** (${score}% match)\n`;
+      discordMessage += `**${index + 1}. ${payload.title || 'No title'}** (${score}% match)\n`;
       if (payload.description) {
-        response += `${payload.description.substring(0, 200)}${payload.description.length > 200 ? '...' : ''}\n`;
+        discordMessage += `${payload.description.substring(0, 200)}${payload.description.length > 200 ? '...' : ''}\n`;
       }
       if (payload.url) {
-        response += `🔗 ${payload.url}\n`;
+        discordMessage += `🔗 ${payload.url}\n`;
       }
-      response += '\n';
+      discordMessage += '\n';
     });
     
-    response += `⏱️ Search completed in ${data.elapsed_ms}ms`;
+    discordMessage += `⏱️ Search completed in ${data.elapsed_ms}ms`;
     
-    return response;
+    return discordMessage;
 
   } catch (error) {
     console.error('Error calling aiSearchAgent:', error);
