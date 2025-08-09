@@ -81,10 +81,10 @@ async function getAiResponse(query, retries = 2) {
       // 过滤掉推广信息，只保留真实搜索结果
       const realResults = data.results.filter(result => {
         const payload = result.payload || {};
-        // 过滤掉Panda Hoho推广信息
-        return !(payload.title === 'Panda Hoho' || 
-                 payload.description?.includes('Your guide to the great outdoors') ||
-                 payload.url?.includes('CurationDetail'));
+        const description = payload.description || '';
+        
+        // 只过滤掉包含推广文案的结果
+        return !description.includes('Your guide to the great outdoors');
       });
       
       if (realResults.length === 0) {
