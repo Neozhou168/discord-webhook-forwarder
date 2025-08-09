@@ -74,7 +74,7 @@ async function getAiResponse(query, retries = 2) {
         return `Search error: ${data.message}`;
       }
       
-      if (realResults.length === 0) {
+      if (!data.results || data.results.length === 0) {
         return `I couldn't find any relevant information for "${query}". Try rephrasing your question or asking about something else.`;
       }
       
@@ -86,6 +86,10 @@ async function getAiResponse(query, retries = 2) {
                  payload.description?.includes('Your guide to the great outdoors') ||
                  payload.url?.includes('CurationDetail'));
       });
+      
+      if (realResults.length === 0) {
+        return `I couldn't find any relevant information for "${query}". Try rephrasing your question or asking about something else.`;
+      }
       
       // 格式化搜索结果为Discord消息
       let discordMessage = `🔍 **Search Results for: "${query}"**\n\n`;
