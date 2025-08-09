@@ -84,38 +84,54 @@ app.post('/interactions', verifyKeyMiddleware(discordPublicKey), async function 
   }
 
   if (interaction.type === InteractionType.APPLICATION_COMMAND && interaction.data.name === 'ask') {
+    // 立即响应Discord，告诉它我们正在处理
     res.send({ type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE });
 
     const question = interaction.data.options[0].value;
     console.log(`Received question: "${question}"`);
-    const answer = await getAiResponse(question);
-
-    const followupUrl = `https://discord.com/api/v10/webhooks/${process.env.DISCORD_CLIENT_ID}/${interaction.token}`;
-
-    try {
-      // Discord消息有2000字符限制，需要截断
-      const truncatedAnswer = answer.length > 2000 ? answer.substring(0, 1997) + '...' : answer;
-      
-      await fetch(followupUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: truncatedAnswer }),
-      });
-      console.log('Successfully sent response to Discord.');
-    } catch (error) {
-      console.error('Error sending follow-up message:', error);
-      
-      // 发送错误回复
+    
+    // 异步处理，避免阻塞响应
+    setImmediate(async () => {
       try {
-        await fetch(followupUrl, {
+        console.log('Starting AI search...');
+        const answer = await getAiResponse(question);
+        console.log('AI search completed, sending to Discord...');
+
+        const followupUrl = `https://discord.com/api/v10/webhooks/${process.env.DISCORD_APPLICATION_ID}/${interaction.token}`;
+        console.log('Follow-up URL:', followupUrl);
+
+        // Discord消息有2000字符限制，需要截断
+        const truncatedAnswer = answer.length > 2000 ? answer.substring(0, 1997) + '...' : answer;
+        
+        const followupResponse = await fetch(followupUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: 'Sorry, I encountered an error while processing your request.' }),
+          body: JSON.stringify({ content: truncatedAnswer }),
         });
-      } catch (fallbackError) {
-        console.error('Error sending fallback message:', fallbackError);
+
+        if (!followupResponse.ok) {
+          const errorText = await followupResponse.text();
+          console.error(`Follow-up failed with status ${followupResponse.status}: ${errorText}`);
+        } else {
+          console.log('Successfully sent response to Discord.');
+        }
+        
+      } catch (error) {
+        console.error('Error in async processing:', error);
+        
+        // 发送错误回复
+        try {
+          const followupUrl = `https://discord.com/api/v10/webhooks/${process.env.DISCORD_APPLICATION_ID}/${interaction.token}`;
+          await fetch(followupUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: 'Sorry, I encountered an error while processing your request.' }),
+          });
+        } catch (fallbackError) {
+          console.error('Error sending fallback message:', fallbackError);
+        }
       }
-    }
+    });
   }
 });
 
