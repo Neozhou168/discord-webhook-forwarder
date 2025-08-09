@@ -231,60 +231,67 @@ app.post('/interactions', verifyKeyMiddleware(discordPublicKey), async function 
     const username = interaction.member?.user?.username || interaction.user?.username || 'unknown';
     console.log(`💬 Received /ask command from user: ${username}`);
     
-    // 立即响应Discord，告诉它我们正在处理
-    res.send({ type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE });
-
     const question = interaction.data.options?.[0]?.value;
     if (!question) {
       console.error('❌ No question provided in /ask command');
-      return;
+      return res.send({
+        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+        data: { content: '❌ 请提供一个问题进行搜索！' }
+      });
     }
 
     console.log(`🤔 Processing question: "${question}"`);
     
-    // 异步处理，避免阻塞响应
+    // 🔥 立即响应Discord，显示"正在搜索"状态
+    res.send({ 
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: { content: `🔍 正在搜索 "${question}"，请稍候...` }
+    });
+    
+    // 异步处理搜索，然后编辑消息
     setImmediate(async () => {
       try {
         const startTime = Date.now();
         const answer = await getAiResponse(question);
         const processingTime = Date.now() - startTime;
         
-        console.log(`✅ AI search completed in ${processingTime}ms, sending to Discord...`);
+        console.log(`✅ AI search completed in ${processingTime}ms, updating Discord message...`);
 
-        const followupUrl = `https://discord.com/api/v10/webhooks/${process.env.DISCORD_APPLICATION_ID}/${interaction.token}`;
+        // 使用PATCH方法编辑原始消息
+        const editUrl = `https://discord.com/api/v10/webhooks/${process.env.DISCORD_APPLICATION_ID}/${interaction.token}/messages/@original`;
         
         // Discord消息长度限制为2000字符
         const truncatedAnswer = answer.length > 2000 ? answer.substring(0, 1997) + '...' : answer;
         
-        const followupResponse = await fetch(followupUrl, {
-          method: 'POST',
+        const editResponse = await fetch(editUrl, {
+          method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ content: truncatedAnswer }),
         });
 
-        if (!followupResponse.ok) {
-          const errorText = await followupResponse.text();
-          console.error(`❌ Discord followup failed with status ${followupResponse.status}: ${errorText}`);
+        if (!editResponse.ok) {
+          const errorText = await editResponse.text();
+          console.error(`❌ Discord message edit failed with status ${editResponse.status}: ${errorText}`);
         } else {
-          console.log('✅ Successfully sent response to Discord');
+          console.log('✅ Successfully updated Discord message');
         }
         
       } catch (error) {
         console.error('❌ Error in async processing:', error);
         
-        // 发送错误消息给用户
+        // 编辑消息显示错误
         try {
-          const followupUrl = `https://discord.com/api/v10/webhooks/${process.env.DISCORD_APPLICATION_ID}/${interaction.token}`;
-          await fetch(followupUrl, {
-            method: 'POST',
+          const editUrl = `https://discord.com/api/v10/webhooks/${process.env.DISCORD_APPLICATION_ID}/${interaction.token}/messages/@original`;
+          await fetch(editUrl, {
+            method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
-              content: '❌ Sorry, I encountered an error while processing your request. Please try again later.' 
+              content: '❌ 搜索时遇到错误，请稍后重试。' 
             }),
           });
           console.log('📤 Sent error message to Discord user');
         } catch (fallbackError) {
-          console.error('❌ Error sending fallback message:', fallbackError);
+          console.error('❌ Error editing error message:', fallbackError);
         }
       }
     });
