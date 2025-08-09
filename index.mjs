@@ -74,14 +74,23 @@ async function getAiResponse(query, retries = 2) {
         return `Search error: ${data.message}`;
       }
       
-      if (!data.results || data.results.length === 0) {
+      if (realResults.length === 0) {
         return `I couldn't find any relevant information for "${query}". Try rephrasing your question or asking about something else.`;
       }
+      
+      // 过滤掉推广信息，只保留真实搜索结果
+      const realResults = data.results.filter(result => {
+        const payload = result.payload || {};
+        // 过滤掉Panda Hoho推广信息
+        return !(payload.title === 'Panda Hoho' || 
+                 payload.description?.includes('Your guide to the great outdoors') ||
+                 payload.url?.includes('CurationDetail'));
+      });
       
       // 格式化搜索结果为Discord消息
       let discordMessage = `🔍 **Search Results for: "${query}"**\n\n`;
       
-      data.results.slice(0, 3).forEach((result, index) => {
+      realResults.slice(0, 3).forEach((result, index) => {
         const payload = result.payload || {};
         const score = result.score ? (result.score * 100).toFixed(1) : 'N/A';
         
