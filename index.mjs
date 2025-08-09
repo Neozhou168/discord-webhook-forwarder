@@ -119,7 +119,7 @@ async function getAiResponse(query, retries = 2) {
           discordMessage += `${desc}${payload.description.length > 150 ? '...' : ''}\n`;
         }
         if (payload.url) {
-          discordMessage += `📍 [查看详情](<${payload.url}>)\n`;
+          discordMessage += `📍 [View Details](<${payload.url}>)\n`;
         }
         discordMessage += '\n';
       });
@@ -236,7 +236,7 @@ app.post('/interactions', verifyKeyMiddleware(discordPublicKey), async function 
       console.error('❌ No question provided in /ask command');
       return res.send({
         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: { content: '❌ 请提供一个问题进行搜索！' }
+        data: { content: '❌ Please provide a question to search!' }
       });
     }
 
@@ -245,7 +245,7 @@ app.post('/interactions', verifyKeyMiddleware(discordPublicKey), async function 
     // 🔥 立即响应Discord，显示"正在搜索"状态
     res.send({ 
       type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-      data: { content: `🔍 正在搜索 "${question}"，请稍候...` }
+      data: { content: `🔍 Searching for "${question}", please wait...` }
     });
     
     // 异步处理搜索，然后编辑消息
@@ -286,7 +286,7 @@ app.post('/interactions', verifyKeyMiddleware(discordPublicKey), async function 
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
-              content: '❌ 搜索时遇到错误，请稍后重试。' 
+              content: '❌ Search error occurred. Please try again later.' 
             }),
           });
           console.log('📤 Sent error message to Discord user');
