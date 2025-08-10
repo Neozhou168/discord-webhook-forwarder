@@ -407,6 +407,17 @@ app.post('/webhook/group-up', async (req, res) => {
   }
 });
 
+// GET方法的webhook端点 - 用于浏览器测试
+app.get('/webhook/group-up', (req, res) => {
+  res.json({
+    message: 'Group-Up webhook endpoint is working!',
+    method: 'This endpoint accepts POST requests only',
+    usage: 'Send POST request with Group-Up data to trigger Discord notification',
+    testEndpoint: 'Use /test-groupup for manual testing',
+    documentation: 'Check the integration guide for proper usage'
+  });
+});
+
 // Discord验证中间件
 const discordPublicKey = process.env.DISCORD_PUBLIC_KEY?.trim();
 if (!discordPublicKey) {
