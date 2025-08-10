@@ -10,6 +10,37 @@ import {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// 手动添加CORS支持（如果没有cors包）
+app.use((req, res, next) => {
+  const allowedOrigins = [
+    'https://www.pandahoho.com',
+    'https://pandahoho.com', 
+    'https://www.base44.com',
+    'https://base44.com',
+    'https://base44.app',
+    'https://www.base44.app',
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://localhost:8080'
+  ];
+  
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+  
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Credentials', 'false');
+  
+  // 处理预检请求
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+  } else {
+    next();
+  }
+});
+
 // 添加JSON解析中间件
 app.use(express.json());
 
@@ -445,13 +476,15 @@ app.get('/test-search', async (req, res) => {
 app.get('/test-groupup', async (req, res) => {
   console.log('🧪 Manual test Group-Up notification requested');
   
-  // 测试数据
+  // 测试数据 - 包含按钮URL
   const testGroupUpData = {
     title: "San Wu Tang Buffet (三五堂自助)",
     organizer: "neo zhou",
     startTime: "2025-07-31T18:50:00Z",
     meetingPoint: "San Wu Tang Buffet (三五堂自助)",
-    note: "eat eat eat"
+    note: "eat eat eat",
+    venueUrl: "https://www.pandahoho.com/VenueDetail?id=example123", // View Venue 按钮
+    joinUrl: "https://www.pandahoho.com/GroupUpDetail?id=example456"  // Join Group-Up 按钮
   };
   
   try {
