@@ -10,9 +10,25 @@ import {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// 添加JSON解析中间件
+app.use(express.json());
+
 // AI搜索服务配置
 const AI_SEARCH_URL = process.env.AI_SEARCH_URL || 'https://pandahoho-ai-search-production.up.railway.app';
 const REQUEST_TIMEOUT = 20000; // 20秒超时
+
+// Discord配置
+const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
+const GROUPUP_CHANNEL_ID = process.env.GROUPUP_CHANNEL_ID; // upcoming-group-ups频道ID
+
+// 验证必要的环境变量
+if (!DISCORD_BOT_TOKEN) {
+  console.error('❌ DISCORD_BOT_TOKEN not found in environment variables');
+}
+
+if (!GROUPUP_CHANNEL_ID) {
+  console.error('⚠️ GROUPUP_CHANNEL_ID not found - Group-Up notifications will be disabled');
+}
 
 // 启动时测试AI服务连接
 async function testAiServiceConnection() {
@@ -195,6 +211,136 @@ async function getAiResponse(query, retries = 2) {
   }
 }
 
+// 发送Group-Up通知到Discord
+async function sendGroupUpNotification(groupUpData) {
+  if (!DISCORD_BOT_TOKEN || !GROUPUP_CHANNEL_ID) {
+    console.error('❌ Discord Bot Token or Channel ID missing - cannot send Group-Up notification');
+    return false;
+  }
+
+  try {
+    console.log('📢 Sending Group-Up notification to Discord...', groupUpData);
+
+    // 格式化时间
+    const startTime = new Date(groupUpData.startTime || groupUpData.start_time);
+    const formattedDate = startTime.toLocaleDateString('en-US', { 
+      weekday: 'long', 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+    const formattedTime = startTime.toLocaleTimeString('en-US', { 
+      hour: '2-digit', 
+      minute: '2-digit',
+      timeZone: 'UTC',
+      timeZoneName: 'short'
+    });
+
+    // 获取当前日期用于底部显示
+    const currentDate = new Date().toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: '2-digit', 
+      year: 'numeric'
+    });
+
+    // 构建Discord消息 - 匹配截图样式
+    const message = {
+      embeds: [{
+        color: 0x00ff00, // 绿色边框
+        title: "🎯 New Group-Up Activity!",
+        description: `Join fellow travelers for: **${groupUpData.title || groupUpData.name}**`,
+        fields: [
+          {
+            name: "📅 Start Time",
+            value: `${formattedDate} at ${formattedTime}`,
+            inline: false
+          },
+          {
+            name: "👤 Organizer", 
+            value: groupUpData.organizer || groupUpData.creator || 'Unknown',
+            inline: false
+          },
+          {
+            name: "📍 Meeting Point",
+            value: groupUpData.meetingPoint || groupUpData.location || 'TBD', 
+            inline: false
+          },
+          {
+            name: "📝 Note",
+            value: groupUpData.note || groupUpData.description || 'No additional notes',
+            inline: false
+          }
+        ],
+        footer: {
+          text: currentDate
+        },
+        timestamp: new Date().toISOString()
+      }]
+    };
+
+    // 发送消息到Discord频道
+    const response = await fetch(`https://discord.com/api/v10/channels/${GROUPUP_CHANNEL_ID}/messages`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bot ${DISCORD_BOT_TOKEN}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(message)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`❌ Failed to send Discord notification: ${response.status} ${errorText}`);
+      return false;
+    }
+
+    console.log('✅ Successfully sent Group-Up notification to Discord');
+    return true;
+
+  } catch (error) {
+    console.error('❌ Error sending Group-Up notification:', error);
+    return false;
+  }
+}
+
+// Webhook端点：接收Group-Up创建通知
+app.post('/webhook/group-up', async (req, res) => {
+  try {
+    console.log('📥 Received Group-Up webhook:', req.body);
+
+    // 验证请求（可选：添加秘钥验证）
+    const groupUpData = req.body;
+    
+    if (!groupUpData || !groupUpData.title && !groupUpData.name) {
+      return res.status(400).json({ 
+        error: 'Invalid Group-Up data - missing title/name' 
+      });
+    }
+
+    // 发送Discord通知
+    const success = await sendGroupUpNotification(groupUpData);
+    
+    if (success) {
+      res.json({ 
+        status: 'success', 
+        message: 'Group-Up notification sent to Discord' 
+      });
+    } else {
+      res.status(500).json({ 
+        status: 'error', 
+        message: 'Failed to send Discord notification' 
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ Error processing Group-Up webhook:', error);
+    res.status(500).json({ 
+      status: 'error', 
+      message: error.message 
+    });
+  }
+});
+
 // Discord验证中间件
 const discordPublicKey = process.env.DISCORD_PUBLIC_KEY?.trim();
 if (!discordPublicKey) {
@@ -252,6 +398,37 @@ app.get('/test-search', async (req, res) => {
     });
   } catch (error) {
     console.error('🧪 Manual test search failed:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// 测试端点 - 手动测试Group-Up推送
+app.get('/test-groupup', async (req, res) => {
+  console.log('🧪 Manual test Group-Up notification requested');
+  
+  // 测试数据
+  const testGroupUpData = {
+    title: "San Wu Tang Buffet (三五堂自助)",
+    organizer: "neo zhou",
+    startTime: "2025-07-31T18:50:00Z",
+    meetingPoint: "San Wu Tang Buffet (三五堂自助)",
+    note: "eat eat eat"
+  };
+  
+  try {
+    const success = await sendGroupUpNotification(testGroupUpData);
+    res.json({
+      success: success,
+      message: success ? 'Test Group-Up notification sent successfully' : 'Failed to send notification',
+      testData: testGroupUpData,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('🧪 Manual test Group-Up failed:', error);
     res.status(500).json({
       success: false,
       error: error.message,
