@@ -30,6 +30,38 @@ async function testAiServiceConnection() {
   }
 }
 
+// 生成Google Maps URL
+function generateGoogleMapUrl(payload) {
+  try {
+    // 优先使用经纬度坐标（最精确）
+    if (payload.latitude && payload.longitude) {
+      return `https://www.google.com/maps?q=${payload.latitude},${payload.longitude}`;
+    }
+    
+    // 如果有具体地址，使用地址搜索
+    if (payload.address) {
+      const encodedAddress = encodeURIComponent(payload.address);
+      return `https://www.google.com/maps/search/?api=1&query=${encodedAddress}`;
+    }
+    
+    // 如果没有地址但有标题，使用标题搜索（适用于知名地点）
+    if (payload.title) {
+      // 为venues添加"Beijing"确保搜索准确性
+      const searchQuery = payload.type === 'venues' 
+        ? `${payload.title} Beijing`
+        : payload.title;
+      const encodedQuery = encodeURIComponent(searchQuery);
+      return `https://www.google.com/maps/search/?api=1&query=${encodedQuery}`;
+    }
+    
+    return null; // 无法生成有效的Google Maps URL
+    
+  } catch (error) {
+    console.error('Error generating Google Maps URL:', error);
+    return null;
+  }
+}
+
 // AI搜索响应处理函数
 async function getAiResponse(query, retries = 2) {
   for (let attempt = 1; attempt <= retries + 1; attempt++) {
@@ -74,7 +106,7 @@ async function getAiResponse(query, retries = 2) {
       if (data.results) {
         data.results.forEach((result, index) => {
           const payload = result.payload || {};
-          console.log(`Result ${index}: title="${payload.title}", description="${payload.description?.substring(0, 50)}..."`);
+          console.log(`Result ${index}: title="${payload.title}", type="${payload.type}", description="${payload.description?.substring(0, 50)}..."`);
         });
       }
       
@@ -118,8 +150,19 @@ async function getAiResponse(query, retries = 2) {
           const desc = payload.description.substring(0, 150);
           discordMessage += `${desc}${payload.description.length > 150 ? '...' : ''}\n`;
         }
+        
+        // 添加链接部分
         if (payload.url) {
-          discordMessage += `📍 [View Details](<${payload.url}>)\n`;
+          discordMessage += `📍 [View Details](<${payload.url}>)`;
+          
+          // 如果是venue或route类型，添加Google Maps链接
+          if (payload.type === 'venues' || payload.type === 'routes') {
+            const googleMapUrl = generateGoogleMapUrl(payload);
+            if (googleMapUrl) {
+              discordMessage += ` | 🗺️ [View Google Map](<${googleMapUrl}>)`;
+            }
+          }
+          discordMessage += '\n';
         }
         discordMessage += '\n';
       });
