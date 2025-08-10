@@ -243,6 +243,33 @@ async function sendGroupUpNotification(groupUpData) {
       year: 'numeric'
     });
 
+    // 构建按钮组件
+    const actionButtons = [];
+    
+    // View Venue/Route 按钮
+    if (groupUpData.venueUrl || groupUpData.routeUrl || groupUpData.detailUrl) {
+      const viewUrl = groupUpData.venueUrl || groupUpData.routeUrl || groupUpData.detailUrl;
+      const buttonLabel = groupUpData.venueUrl ? 'View Venue' : 
+                         groupUpData.routeUrl ? 'View Route' : 'View Details';
+      
+      actionButtons.push({
+        type: 2, // Button type
+        style: 5, // Link style (gray)
+        label: buttonLabel,
+        url: viewUrl
+      });
+    }
+
+    // Join Group-Up 按钮
+    if (groupUpData.joinUrl || groupUpData.groupUpUrl) {
+      actionButtons.push({
+        type: 2, // Button type
+        style: 5, // Link style (gray)
+        label: 'Join Group-Up',
+        url: groupUpData.joinUrl || groupUpData.groupUpUrl
+      });
+    }
+
     // 构建Discord消息 - 匹配截图样式
     const message = {
       embeds: [{
@@ -277,6 +304,14 @@ async function sendGroupUpNotification(groupUpData) {
         timestamp: new Date().toISOString()
       }]
     };
+
+    // 如果有按钮，添加到消息中
+    if (actionButtons.length > 0) {
+      message.components = [{
+        type: 1, // Action Row
+        components: actionButtons
+      }];
+    }
 
     // 发送消息到Discord频道
     const response = await fetch(`https://discord.com/api/v10/channels/${GROUPUP_CHANNEL_ID}/messages`, {
